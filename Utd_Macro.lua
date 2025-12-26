@@ -1,5 +1,5 @@
 -- ULTIMATE TOWER DEFENSE - MACRO SYSTEM MOBILE COMPLETO
--- Con Auto TP, Auto Join, Auto Retry, Delay y Speed
+-- Con PERSISTENCIA DE CONFIGURACIÓN entre ejecuciones
 -- Delta Mobile Compatible
 
 local Players = game:GetService("Players")
@@ -8,7 +8,7 @@ local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 
 -- ====================================
--- CONFIGURACIÓN
+-- CONFIGURACIÓN CON PERSISTENCIA
 -- ====================================
 
 local CONFIG = {
@@ -18,14 +18,52 @@ local CONFIG = {
     minimized = false,
     circlePosition = Vector3.new(11264.80, 22.77, 51.57),
     macroFolder = "UTD_Macros",
+    configFile = "UTD_Config.json",
     currentMacroName = nil,
     
-    -- NUEVAS OPCIONES
+    -- Opciones persistentes
     macroStarted = false,
     hasSetSpeed = false,
     autoRetry = true,
     startDelay = 10
 }
+
+-- ====================================
+-- GUARDAR/CARGAR CONFIG
+-- ====================================
+
+local function saveConfig()
+    pcall(function()
+        local data = {
+            isAutoFarmActive = CONFIG.isAutoFarmActive,
+            currentMacroName = CONFIG.currentMacroName,
+            autoRetry = CONFIG.autoRetry,
+            startDelay = CONFIG.startDelay,
+            recordedActions = CONFIG.recordedActions,
+            minimized = CONFIG.minimized
+        }
+        writefile(CONFIG.configFile, HttpService:JSONEncode(data))
+    end)
+end
+
+local function loadConfig()
+    if isfile(CONFIG.configFile) then
+        local success, data = pcall(function()
+            return HttpService:JSONDecode(readfile(CONFIG.configFile))
+        end)
+        
+        if success and data then
+            CONFIG.isAutoFarmActive = data.isAutoFarmActive or false
+            CONFIG.currentMacroName = data.currentMacroName
+            CONFIG.autoRetry = data.autoRetry ~= nil and data.autoRetry or true
+            CONFIG.startDelay = data.startDelay or 10
+            CONFIG.recordedActions = data.recordedActions or {}
+            CONFIG.minimized = data.minimized or false
+            return true
+        end
+    end
+    return false
+end
 
 -- ====================================
 -- FUNCIONES DE ESTADO
@@ -51,19 +89,19 @@ end
 
 local function tpToCircle()
     if not isInLobby() then return end
-    local char = player.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+    pcall(function()
+        local char = player.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
 
-    local cf = CFrame.new(CONFIG.circlePosition + Vector3.new(0, 3, 0))
-    for i = 1, 6 do
-        pcall(function()
+        local cf = CFrame.new(CONFIG.circlePosition + Vector3.new(0, 3, 0))
+        for i = 1, 6 do
             hrp.CFrame = cf
             hrp.Velocity = Vector3.zero
-        end)
-        task.wait(0.25)
-    end
+            task.wait(0.25)
+        end
+    end)
 end
 
 -- ====================================
@@ -72,18 +110,18 @@ end
 
 local function setSpeed()
     if CONFIG.hasSetSpeed then return end
-    local gui = player:FindFirstChild("PlayerGui")
-    if not gui then return end
+    pcall(function()
+        local gui = player:FindFirstChild("PlayerGui")
+        if not gui then return end
 
-    for _, v in ipairs(gui:GetDescendants()) do
-        if v:IsA("TextButton") and v.Text:find("x") then
-            pcall(function()
+        for _, v in ipairs(gui:GetDescendants()) do
+            if v:IsA("TextButton") and v.Text:find("x") then
                 v:Activate()
-            end)
-            CONFIG.hasSetSpeed = true
-            break
+                CONFIG.hasSetSpeed = true
+                break
+            end
         end
-    end
+    end)
 end
 
 -- ====================================
@@ -92,18 +130,18 @@ end
 
 local function autoRetry()
     if not CONFIG.autoRetry then return end
-    local gui = player:FindFirstChild("PlayerGui")
-    if not gui then return end
+    pcall(function()
+        local gui = player:FindFirstChild("PlayerGui")
+        if not gui then return end
 
-    for _, v in ipairs(gui:GetDescendants()) do
-        if v:IsA("TextButton") and (v.Text:lower():find("reintentar") or v.Text:lower():find("retry")) then
-            pcall(function()
+        for _, v in ipairs(gui:GetDescendants()) do
+            if v:IsA("TextButton") and (v.Text:lower():find("reintentar") or v.Text:lower():find("retry")) then
                 v:Activate()
-            end)
-            resetRun()
-            return
+                resetRun()
+                return
+            end
         end
-    end
+    end)
 end
 
 -- ====================================
@@ -170,8 +208,14 @@ local function playMacro()
 end
 
 -- ====================================
--- INTERFAZ MÓVIL COMPACTA
+-- INTERFAZ MÓVIL
 -- ====================================
+
+local existingGui = player.PlayerGui:FindFirstChild("UTDMacroMobile")
+if existingGui then
+    existingGui:Destroy()
+    task.wait(0.1)
+end
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "UTDMacroMobile"
@@ -179,7 +223,6 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true
 ScreenGui.Parent = player:WaitForChild("PlayerGui")
 
--- Frame Principal
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, 340, 0, 520)
 MainFrame.Position = UDim2.new(0.5, -170, 0.5, -260)
@@ -193,7 +236,6 @@ local MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 10)
 MainCorner.Parent = MainFrame
 
--- Barra de título
 local TitleBar = Instance.new("Frame")
 TitleBar.Size = UDim2.new(1, 0, 0, 45)
 TitleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
@@ -215,7 +257,6 @@ TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = TitleBar
 
--- Botón Minimizar
 local MinimizeBtn = Instance.new("TextButton")
 MinimizeBtn.Size = UDim2.new(0, 35, 0, 35)
 MinimizeBtn.Position = UDim2.new(1, -75, 0, 5)
@@ -230,7 +271,6 @@ local MinimizeCorner = Instance.new("UICorner")
 MinimizeCorner.CornerRadius = UDim.new(0, 8)
 MinimizeCorner.Parent = MinimizeBtn
 
--- Botón Cerrar
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Size = UDim2.new(0, 35, 0, 35)
 CloseBtn.Position = UDim2.new(1, -35, 0, 5)
@@ -245,14 +285,12 @@ local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 8)
 CloseCorner.Parent = CloseBtn
 
--- Contenedor
 local ContentFrame = Instance.new("Frame")
 ContentFrame.Size = UDim2.new(1, 0, 1, -45)
 ContentFrame.Position = UDim2.new(0, 0, 0, 45)
 ContentFrame.BackgroundTransparency = 1
 ContentFrame.Parent = MainFrame
 
--- Toggle Auto-Farm
 local AutoFarmToggle = Instance.new("TextButton")
 AutoFarmToggle.Size = UDim2.new(1, -20, 0, 60)
 AutoFarmToggle.Position = UDim2.new(0, 10, 0, 10)
@@ -267,7 +305,6 @@ local ToggleCorner = Instance.new("UICorner")
 ToggleCorner.CornerRadius = UDim.new(0, 10)
 ToggleCorner.Parent = AutoFarmToggle
 
--- Opciones
 local OptionsFrame = Instance.new("Frame")
 OptionsFrame.Size = UDim2.new(1, -20, 0, 80)
 OptionsFrame.Position = UDim2.new(0, 10, 0, 80)
@@ -304,7 +341,6 @@ DelayLabel.Font = Enum.Font.Gotham
 DelayLabel.TextXAlignment = Enum.TextXAlignment.Left
 DelayLabel.Parent = OptionsFrame
 
--- Sección Macros
 local MacroSection = Instance.new("Frame")
 MacroSection.Size = UDim2.new(1, -20, 0, 180)
 MacroSection.Position = UDim2.new(0, 10, 0, 170)
@@ -327,7 +363,6 @@ MacroLabel.Font = Enum.Font.GothamSemibold
 MacroLabel.TextXAlignment = Enum.TextXAlignment.Left
 MacroLabel.Parent = MacroSection
 
--- Lista de macros
 local MacroList = Instance.new("ScrollingFrame")
 MacroList.Size = UDim2.new(1, -20, 0, 90)
 MacroList.Position = UDim2.new(0, 10, 0, 40)
@@ -344,7 +379,6 @@ local ListLayout = Instance.new("UIListLayout")
 ListLayout.Padding = UDim.new(0, 5)
 ListLayout.Parent = MacroList
 
--- Botones de macro
 local LoadBtn = Instance.new("TextButton")
 LoadBtn.Size = UDim2.new(0.48, 0, 0, 35)
 LoadBtn.Position = UDim2.new(0, 10, 0, 140)
@@ -373,7 +407,6 @@ local DeleteCorner = Instance.new("UICorner")
 DeleteCorner.CornerRadius = UDim.new(0, 8)
 DeleteCorner.Parent = DeleteBtn
 
--- Sección Acciones
 local ActionSection = Instance.new("Frame")
 ActionSection.Size = UDim2.new(1, -20, 0, 100)
 ActionSection.Position = UDim2.new(0, 10, 0, 360)
@@ -413,7 +446,6 @@ local SaveCorner = Instance.new("UICorner")
 SaveCorner.CornerRadius = UDim.new(0, 8)
 SaveCorner.Parent = SaveBtn
 
--- Label de estado
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Size = UDim2.new(1, -20, 0, 20)
 StatusLabel.Position = UDim2.new(0, 10, 0, 470)
@@ -429,12 +461,12 @@ StatusLabel.Parent = ContentFrame
 -- FUNCIONES UI
 -- ====================================
 
-function updateStatus(text, color)
+local function updateStatus(text, color)
     StatusLabel.Text = text
     StatusLabel.TextColor3 = color or Color3.fromRGB(150, 150, 150)
 end
 
-function refreshMacroList()
+local function refreshMacroList()
     for _, child in ipairs(MacroList:GetChildren()) do
         if child:IsA("TextButton") then child:Destroy() end
     end
@@ -454,6 +486,10 @@ function refreshMacroList()
         corner.CornerRadius = UDim.new(0, 6)
         corner.Parent = btn
         
+        if name == CONFIG.currentMacroName then
+            btn.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+        end
+        
         btn.MouseButton1Click:Connect(function()
             CONFIG.currentMacroName = name
             for _, b in ipairs(MacroList:GetChildren()) do
@@ -462,29 +498,60 @@ function refreshMacroList()
                 end
             end
             btn.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+            saveConfig()
         end)
     end
     
     MacroList.CanvasSize = UDim2.new(0, 0, 0, #macros * 45)
 end
 
-function startAutoFarm()
+local function updateUIFromConfig()
+    if CONFIG.isAutoFarmActive then
+        AutoFarmToggle.Text = "🟢 ENCENDIDO"
+        AutoFarmToggle.BackgroundColor3 = Color3.fromRGB(70, 180, 70)
+        AutoFarmToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    else
+        AutoFarmToggle.Text = "⚪ APAGADO"
+        AutoFarmToggle.BackgroundColor3 = Color3.fromRGB(80, 80, 85)
+        AutoFarmToggle.TextColor3 = Color3.fromRGB(200, 200, 200)
+    end
+    
+    if CONFIG.autoRetry then
+        RetryToggle.Text = "🔄 Auto-Retry: ON"
+        RetryToggle.BackgroundColor3 = Color3.fromRGB(70, 180, 70)
+    else
+        RetryToggle.Text = "⏸️ Auto-Retry: OFF"
+        RetryToggle.BackgroundColor3 = Color3.fromRGB(180, 70, 70)
+    end
+    
+    DelayLabel.Text = "⏱️ Delay: " .. CONFIG.startDelay .. "s"
+    
+    if CONFIG.minimized then
+        MainFrame.Size = UDim2.new(0, 340, 0, 45)
+        ContentFrame.Visible = false
+        MinimizeBtn.Text = "□"
+    end
+end
+
+local function startAutoFarm()
     CONFIG.isAutoFarmActive = true
     AutoFarmToggle.Text = "🟢 ENCENDIDO"
     AutoFarmToggle.BackgroundColor3 = Color3.fromRGB(70, 180, 70)
     AutoFarmToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
     updateStatus("🟢 Activo", Color3.fromRGB(100, 255, 100))
+    saveConfig()
 end
 
-function stopAutoFarm()
+local function stopAutoFarm()
     CONFIG.isAutoFarmActive = false
     AutoFarmToggle.Text = "⚪ APAGADO"
     AutoFarmToggle.BackgroundColor3 = Color3.fromRGB(80, 80, 85)
     AutoFarmToggle.TextColor3 = Color3.fromRGB(200, 200, 200)
     updateStatus("⏹️ Detenido", Color3.fromRGB(150, 150, 150))
+    saveConfig()
 end
 
-function toggleMinimize()
+local function toggleMinimize()
     CONFIG.minimized = not CONFIG.minimized
     if CONFIG.minimized then
         MainFrame:TweenSize(UDim2.new(0, 340, 0, 45), "Out", "Quad", 0.3, true)
@@ -495,10 +562,11 @@ function toggleMinimize()
         ContentFrame.Visible = true
         MinimizeBtn.Text = "—"
     end
+    saveConfig()
 end
 
 -- ====================================
--- EVENTOS UI
+-- EVENTOS
 -- ====================================
 
 MinimizeBtn.MouseButton1Click:Connect(toggleMinimize)
@@ -525,6 +593,7 @@ RetryToggle.MouseButton1Click:Connect(function()
         RetryToggle.Text = "⏸️ Auto-Retry: OFF"
         RetryToggle.BackgroundColor3 = Color3.fromRGB(180, 70, 70)
     end
+    saveConfig()
 end)
 
 LoadBtn.MouseButton1Click:Connect(function()
@@ -536,13 +605,8 @@ LoadBtn.MouseButton1Click:Connect(function()
     local data = loadMacro(CONFIG.currentMacroName)
     if data then
         CONFIG.recordedActions = data
-        updateStatus("✅ Config restaurada", Color3.fromRGB(100, 255, 100))
-else
-    updateStatus("✅ Listo", Color3.fromRGB(100, 255, 100))
-end
-
-print("✅ UTD Macro Mobile Pro cargado correctamente")
-print("📁 Configuración persistente activada") " .. CONFIG.currentMacroName, Color3.fromRGB(100, 255, 100))
+        updateStatus("✅ " .. CONFIG.currentMacroName, Color3.fromRGB(100, 255, 100))
+        saveConfig()
     else
         updateStatus("❌ Error", Color3.fromRGB(255, 100, 100))
     end
@@ -561,80 +625,4 @@ DeleteBtn.MouseButton1Click:Connect(function()
     CONFIG.currentMacroName = nil
     updateStatus("🗑️ Eliminado", Color3.fromRGB(150, 150, 150))
     refreshMacroList()
-end)
-
-PasteBtn.MouseButton1Click:Connect(function()
-    local clipboard = getclipboard and getclipboard() or ""
-    if clipboard == "" then
-        updateStatus("⚠️ Portapapeles vacío", Color3.fromRGB(255, 150, 50))
-        return
-    end
-    
-    local success, data = pcall(function()
-        return HttpService:JSONDecode(clipboard)
-    end)
-    
-    if success then
-        CONFIG.recordedActions = data
-        updateStatus("✅ " .. #data .. " acciones", Color3.fromRGB(100, 255, 100))
-    else
-        updateStatus("❌ JSON inválido", Color3.fromRGB(255, 100, 100))
-    end
-end)
-
-SaveBtn.MouseButton1Click:Connect(function()
-    if #CONFIG.recordedActions == 0 then
-        updateStatus("⚠️ No hay macro", Color3.fromRGB(255, 150, 50))
-        return
-    end
-    
-    local name = "macro_" .. os.date("%H%M%S")
-    saveMacro(name, CONFIG.recordedActions)
-    updateStatus("💾 " .. name, Color3.fromRGB(100, 255, 100))
-    refreshMacroList()
-end)
-
--- ====================================
--- LOOP PRINCIPAL AUTO
--- ====================================
-
-task.spawn(function()
-    while true do
-        task.wait(1)
-
-        -- En Lobby: TP al círculo
-        if isInLobby() then
-            resetRun()
-            if CONFIG.isAutoFarmActive then
-                tpToCircle()
-                updateStatus("📍 En lobby", Color3.fromRGB(100, 200, 255))
-            end
-        end
-
-        -- En Game: ejecutar macro
-        if isInGame() and CONFIG.isAutoFarmActive then
-            if not CONFIG.macroStarted then
-                CONFIG.macroStarted = true
-                
-                updateStatus("⏱️ Esperando " .. CONFIG.startDelay .. "s", Color3.fromRGB(255, 200, 50))
-                task.wait(1)
-                setSpeed()
-                
-                task.wait(CONFIG.startDelay)
-                updateStatus("▶️ Ejecutando macro", Color3.fromRGB(100, 255, 100))
-                playMacro()
-            end
-        end
-
-        -- Auto Retry
-        autoRetry()
-    end
-end)
-
--- ====================================
--- INICIALIZACIÓN
--- ====================================
-
-refreshMacroList()
-updateStatus("✅ Listo", Color3.fromRGB(100, 255, 100))
-print("✅ UTD Macro Mobile Pro cargado correctamente")
+  
