@@ -1,8 +1,14 @@
+-- ULTIMATE TOWER DEFENSE - MACRO SYSTEM MOBILE v2
+-- Versión corregida con detección lobby/partida y config persistente
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
+
+-- ====================================
+-- CONFIGURACIÓN PERSISTENTE
+-- ====================================
 
 local CONFIG = {
     isAutoFarmActive = false,
@@ -35,6 +41,14 @@ local TOWER_NAMES = {
 -- ====================================
 -- FUNCIONES DE DETECCIÓN
 -- ====================================
+
+function isInLobby()
+    return workspace:FindFirstChild("Lobby") ~= nil
+end
+
+function isInGame()
+    return workspace:FindFirstChild("Map") ~= nil
+end
 
 -- ====================================
 -- SISTEMA DE ARCHIVOS
