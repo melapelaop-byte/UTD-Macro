@@ -36,14 +36,6 @@ local TOWER_NAMES = {
 -- FUNCIONES DE DETECCIÓN
 -- ====================================
 
-function isInLobby()
-    return workspace:FindFirstChild("Lobby") ~= nil
-end
-
-function isInGame()
-    return workspace:FindFirstChild("Map") ~= nil
-end
-
 -- ====================================
 -- SISTEMA DE ARCHIVOS
 -- ====================================
