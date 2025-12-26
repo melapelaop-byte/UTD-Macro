@@ -1,25 +1,26 @@
--- ULTIMATE TOWER DEFENSE - MACRO MOBILE v2 FINAL
--- Versión completa y corregida para Delta Mobile
-
+-- UTD MACRO MOBILE - VERSION FINAL CORREGIDA
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 
--- ====================================
--- CONFIGURACIÓN
--- ====================================
+-- Eliminar GUI vieja
+pcall(function()
+    local old = player.PlayerGui:FindFirstChild("UTDMacroMobile")
+    if old then old:Destroy() end
+end)
 
+wait(0.5)
+
+-- Config
 local CONFIG = {
     isAutoFarmActive = false,
     recordedActions = {},
     placedTowers = {},
-    minimized = false,
     circlePosition = Vector3.new(11264.80, 22.77, 51.57),
     macroFolder = "UTD_Macros",
     configFile = "UTD_Config.json",
     currentMacroName = nil,
-    waitForMoney = true,
     retryDetected = false,
     inGame = false
 }
@@ -38,22 +39,16 @@ local TOWER_NAMES = {
     ["4"] = "Militant", ["5"] = "Mortar", ["6"] = "Torre 6"
 }
 
--- ====================================
--- FUNCIONES DE DETECCIÓN
--- ====================================
-
-function isInLobby()
+-- Funciones de detección
+local function isInLobby()
     return workspace:FindFirstChild("Lobby") ~= nil
 end
 
-function isInGame()
+local function isInGame()
     return workspace:FindFirstChild("Map") ~= nil
 end
 
--- ====================================
--- SISTEMA DE ARCHIVOS
--- ====================================
-
+-- Sistema de archivos
 local function ensureFolderExists()
     if not isfolder(CONFIG.macroFolder) then
         makefolder(CONFIG.macroFolder)
@@ -88,7 +83,6 @@ local function saveConfig()
     ensureFolderExists()
     local config = {
         currentMacroName = CONFIG.currentMacroName,
-        waitForMoney = CONFIG.waitForMoney,
         isAutoFarmActive = CONFIG.isAutoFarmActive,
         recordedActionsCount = #CONFIG.recordedActions
     }
@@ -103,7 +97,6 @@ local function loadConfig()
         
         if success and data then
             CONFIG.currentMacroName = data.currentMacroName
-            CONFIG.waitForMoney = data.waitForMoney or true
             
             if CONFIG.currentMacroName then
                 local macroData = loadMacro(CONFIG.currentMacroName)
@@ -111,33 +104,19 @@ local function loadConfig()
                     CONFIG.recordedActions = macroData
                 end
             end
-            
-            if data.isAutoFarmActive then
-                task.delay(2, function()
-                    startAutoFarm()
-                end)
-            end
         end
     end
 end
 
--- ====================================
--- VARIABLES UI
--- ====================================
+-- Variables UI
+local ScreenGui, MainFrame, ContentFrame, AutoFarmToggle, StatusLabel, MacroList
 
-local ScreenGui, MainFrame, ContentFrame, AutoFarmToggle, StatusLabel
-local MacroList, MinimizeBtn
-
--- ====================================
--- CREAR INTERFAZ
--- ====================================
-
-function createUI()
+-- Crear UI
+local function createUI()
     ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "UTDMacroMobile"
     ScreenGui.ResetOnSpawn = false
-    ScreenGui.IgnoreGuiInset = true
-    ScreenGui.Parent = player:WaitForChild("PlayerGui")
+    ScreenGui.Parent = player.PlayerGui
 
     MainFrame = Instance.new("Frame")
     MainFrame.Size = UDim2.new(0, 340, 0, 480)
@@ -163,7 +142,7 @@ function createUI()
     TitleCorner.Parent = TitleBar
 
     local TitleLabel = Instance.new("TextLabel")
-    TitleLabel.Size = UDim2.new(1, -90, 1, 0)
+    TitleLabel.Size = UDim2.new(1, -75, 1, 0)
     TitleLabel.Position = UDim2.new(0, 10, 0, 0)
     TitleLabel.BackgroundTransparency = 1
     TitleLabel.Text = "🎮 UTD Macro"
@@ -173,23 +152,9 @@ function createUI()
     TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
     TitleLabel.Parent = TitleBar
 
-    MinimizeBtn = Instance.new("TextButton")
-    MinimizeBtn.Size = UDim2.new(0, 35, 0, 35)
-    MinimizeBtn.Position = UDim2.new(1, -75, 0, 5)
-    MinimizeBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
-    MinimizeBtn.Text = "—"
-    MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    MinimizeBtn.TextSize = 18
-    MinimizeBtn.Font = Enum.Font.GothamBold
-    MinimizeBtn.Parent = TitleBar
-
-    local MinimizeCorner = Instance.new("UICorner")
-    MinimizeCorner.CornerRadius = UDim.new(0, 8)
-    MinimizeCorner.Parent = MinimizeBtn
-
     local CloseBtn = Instance.new("TextButton")
     CloseBtn.Size = UDim2.new(0, 35, 0, 35)
-    CloseBtn.Position = UDim2.new(1, -35, 0, 5)
+    CloseBtn.Position = UDim2.new(1, -40, 0, 5)
     CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
     CloseBtn.Text = "✕"
     CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -363,28 +328,104 @@ function createUI()
     StatusLabel.Parent = ContentFrame
 
     -- Conectar eventos
-    MinimizeBtn.MouseButton1Click:Connect(toggleMinimize)
-    CloseBtn.MouseButton1Click:Connect(onClose)
-    AutoFarmToggle.MouseButton1Click:Connect(onToggleAutoFarm)
-    LoadBtn.MouseButton1Click:Connect(onLoadMacro)
-    DeleteBtn.MouseButton1Click:Connect(onDeleteMacro)
-    PasteBtn.MouseButton1Click:Connect(onPasteMacro)
-    SaveBtn.MouseButton1Click:Connect(onSaveMacro)
-    RetryBtn.MouseButton1Click:Connect(onRetry)
+    CloseBtn.MouseButton1Click:Connect(function()
+        stopAutoFarm()
+        saveConfig()
+        ScreenGui:Destroy()
+    end)
+
+    AutoFarmToggle.MouseButton1Click:Connect(function()
+        if CONFIG.isAutoFarmActive then
+            stopAutoFarm()
+        else
+            startAutoFarm()
+        end
+    end)
+
+    LoadBtn.MouseButton1Click:Connect(function()
+        if not CONFIG.currentMacroName then
+            updateStatus("⚠️ Selecciona macro", Color3.fromRGB(255, 150, 50))
+            return
+        end
+        
+        local data = loadMacro(CONFIG.currentMacroName)
+        if data then
+            CONFIG.recordedActions = data
+            updateStatus("✅ " .. CONFIG.currentMacroName .. " (" .. #data .. ")", Color3.fromRGB(100, 255, 100))
+            saveConfig()
+        else
+            updateStatus("❌ Error", Color3.fromRGB(255, 100, 100))
+        end
+    end)
+
+    DeleteBtn.MouseButton1Click:Connect(function()
+        if not CONFIG.currentMacroName then
+            updateStatus("⚠️ Selecciona macro", Color3.fromRGB(255, 150, 50))
+            return
+        end
+        
+        local path = CONFIG.macroFolder .. "/" .. CONFIG.currentMacroName .. ".json"
+        if isfile(path) then
+            delfile(path)
+        end
+        CONFIG.currentMacroName = nil
+        updateStatus("🗑️ Eliminado", Color3.fromRGB(150, 150, 150))
+        saveConfig()
+        refreshMacroList()
+    end)
+
+    PasteBtn.MouseButton1Click:Connect(function()
+        local clipboard = getclipboard and getclipboard() or ""
+        if clipboard == "" then
+            updateStatus("⚠️ Portapapeles vacío", Color3.fromRGB(255, 150, 50))
+            return
+        end
+        
+        local success, data = pcall(function()
+            return HttpService:JSONDecode(clipboard)
+        end)
+        
+        if success then
+            CONFIG.recordedActions = data
+            updateStatus("✅ " .. #data .. " acciones", Color3.fromRGB(100, 255, 100))
+        else
+            updateStatus("❌ JSON inválido", Color3.fromRGB(255, 100, 100))
+        end
+    end)
+
+    SaveBtn.MouseButton1Click:Connect(function()
+        if #CONFIG.recordedActions == 0 then
+            updateStatus("⚠️ No hay macro", Color3.fromRGB(255, 150, 50))
+            return
+        end
+        
+        local name = "macro_" .. os.date("%H%M%S")
+        saveMacro(name, CONFIG.recordedActions)
+        CONFIG.currentMacroName = name
+        updateStatus("💾 " .. name, Color3.fromRGB(100, 255, 100))
+        saveConfig()
+        refreshMacroList()
+    end)
+
+    RetryBtn.MouseButton1Click:Connect(function()
+        if CONFIG.inGame and CONFIG.isAutoFarmActive then
+            CONFIG.retryDetected = true
+            updateStatus("🔄 Retry marcado", Color3.fromRGB(255, 200, 50))
+        else
+            updateStatus("⚠️ Solo en partida", Color3.fromRGB(255, 150, 50))
+        end
+    end)
 end
 
--- ====================================
--- FUNCIONES PRINCIPALES
--- ====================================
-
-function updateStatus(text, color)
+-- Funciones principales
+local function updateStatus(text, color)
     if StatusLabel then
         StatusLabel.Text = text
         StatusLabel.TextColor3 = color or Color3.fromRGB(150, 150, 150)
     end
 end
 
-function refreshMacroList()
+local function refreshMacroList()
     if not MacroList then return end
     
     for _, child in ipairs(MacroList:GetChildren()) do
@@ -425,29 +466,27 @@ function refreshMacroList()
     MacroList.CanvasSize = UDim2.new(0, 0, 0, #macros * 45)
 end
 
-function getCurrentMoney()
+local function getCurrentMoney()
     local success, money = pcall(function()
         return player.leaderstats.Cash.Value or 0
     end)
     return success and money or 0
 end
 
-function teleportToCircle()
+local function teleportToCircle()
     if not isInLobby() then
         return false
     end
     
-    local success = pcall(function()
+    pcall(function()
         local char = player.Character
         if char and char:FindFirstChild("HumanoidRootPart") then
             char.HumanoidRootPart.CFrame = CFrame.new(CONFIG.circlePosition)
         end
     end)
-    
-    return success
 end
 
-function placeTower(towerTypeId, position)
+local function placeTower(towerTypeId, position)
     pcall(function()
         local towerGameId = TOWER_IDS[towerTypeId]
         ReplicatedStorage:WaitForChild("GenericModules")
@@ -458,7 +497,7 @@ function placeTower(towerTypeId, position)
     end)
 end
 
-function upgradeTower(towerId)
+local function upgradeTower(towerId)
     pcall(function()
         ReplicatedStorage:WaitForChild("GenericModules")
             :WaitForChild("Service")
@@ -468,7 +507,7 @@ function upgradeTower(towerId)
     end)
 end
 
-function playMacro()
+local function playMacro()
     if #CONFIG.recordedActions == 0 then
         updateStatus("⚠️ No hay macro", Color3.fromRGB(255, 150, 50))
         return
@@ -514,7 +553,7 @@ function playMacro()
             local towerX = action.TowerUpgraded
             local upgradeCost = action.UpgradeCost or 0
             
-            if CONFIG.waitForMoney and upgradeCost > 0 then
+            if upgradeCost > 0 then
                 local waitStart = tick()
                 while getCurrentMoney() < upgradeCost and CONFIG.isAutoFarmActive do
                     updateStatus("💰 $" .. upgradeCost, Color3.fromRGB(255, 200, 50))
@@ -543,7 +582,7 @@ function playMacro()
     updateStatus("✅ Completado", Color3.fromRGB(100, 255, 100))
 end
 
-function autoFarmLoop()
+local function autoFarmLoop()
     spawn(function()
         while CONFIG.isAutoFarmActive do
             if isInLobby() then
@@ -593,8 +632,28 @@ function startAutoFarm()
     if AutoFarmToggle then
         AutoFarmToggle.Text = "🟢 ENCENDIDO"
         AutoFarmToggle.BackgroundColor3 = Color3.fromRGB(70, 180, 70)
-    AutoFarmToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+        AutoFarmToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
+    updateStatus("🟢 Activo", Color3.fromRGB(100, 255, 100))
+    saveConfig()
+    autoFarmLoop()
 end
+
+function stopAutoFarm()
+    CONFIG.isAutoFarmActive = false
+    if AutoFarmToggle then
+        AutoFarmToggle.Text = "⚪ APAGADO"
+        AutoFarmToggle.BackgroundColor3 = Color3.fromRGB(80, 80, 85)
+        AutoFarmToggle.TextColor3 = Color3.fromRGB(200, 200, 200)
+    end
+    updateStatus("⏹️ Detenido", Color3.fromRGB(150, 150, 150))
+    saveConfig()
+end
+
+-- Iniciar
+createUI()
+refreshMacroList()
+loadConfig()
 
 if CONFIG.currentMacroName and #CONFIG.recordedActions > 0 then
     updateStatus("✅ " .. CONFIG.currentMacroName .. " (" .. #CONFIG.recordedActions .. ")", Color3.fromRGB(100, 255, 100))
