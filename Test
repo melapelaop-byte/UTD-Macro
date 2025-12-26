@@ -1,0 +1,22 @@
+local success, result = pcall(function()
+    return game:HttpGet("https://raw.githubusercontent.com/melapelaop-byte/UTD-Macro/refs/heads/main/Utd.lua")
+end)
+
+if success then
+    print("✅ Descarga OK")
+    print("Tamaño del código:", #result, "caracteres")
+    print("Primeras 50 letras:", string.sub(result, 1, 50))
+    
+    local success2, error2 = pcall(function()
+        loadstring(result)()
+    end)
+    
+    if success2 then
+        print("✅ Script ejecutado")
+    else
+        print("❌ Error al ejecutar:")
+        print(error2)
+    end
+else
+    print("❌ Error al descargar:", result)
+end
