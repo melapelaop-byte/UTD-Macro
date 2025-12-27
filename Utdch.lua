@@ -1,243 +1,236 @@
---// ULTIMATE TOWER DEFENSE - MACRO AFK PRO
---// Mobile + Delta Executor
---// UI flotante + Auto record + Auto play
+-- UTD AUTO MACRO - DELTA MOBILE
+-- Grabar / Reproducir / Auto Start / Auto Retry / Persistente
+-- UI flotante | CoreGui | Mobile Friendly
 
---------------------------------------------------
+-- ===============================
 -- SERVICIOS
---------------------------------------------------
+-- ===============================
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
-local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 local player = Players.LocalPlayer
 
---------------------------------------------------
--- NETWORK (CONFIRMADO POR REMOTE SPY)
---------------------------------------------------
-local Network =
-    ReplicatedStorage
+-- ===============================
+-- REMOTES
+-- ===============================
+local Network = ReplicatedStorage
     :WaitForChild("GenericModules")
     :WaitForChild("Service")
     :WaitForChild("Network")
 
-local PLACE_REMOTE   = Network:WaitForChild("PlayerPlaceTower")
-local UPGRADE_REMOTE = Network:WaitForChild("PlayerUpgradeTower")
-local SELL_REMOTE    = Network:FindFirstChild("PlayerSellTower") -- puede existir o no
+local PlaceRemote   = Network:WaitForChild("PlayerPlaceTower")
+local UpgradeRemote = Network:WaitForChild("PlayerUpgradeTower")
+local SellRemote    = Network:FindFirstChild("PlayerSellTower") 
+                    or Network:FindFirstChild("PlayerRemoveTower")
 
-local START_REMOTE   = Network:FindFirstChild("PlayerVoteStart")
-local RETRY_REMOTE   = Network:FindFirstChild("PlayerRetry")
-local SPEED_REMOTE   = Network:FindFirstChild("PlayerSetSpeed")
-
---------------------------------------------------
+-- ===============================
 -- CONFIG PERSISTENTE
---------------------------------------------------
-local FILE = "UTD_MACRO_PRO.json"
+-- ===============================
+local SAVE_KEY = "UTD_MACRO_CONFIG_V1"
 
 local CONFIG = {
-    recording = false,
-    actions = {},
-    autoPlay = true,
+    recorded = {},
     autoStart = true,
     autoRetry = true,
     speed = 1.5
 }
 
+-- Cargar
+pcall(function()
+    if isfile(SAVE_KEY) then
+        CONFIG = HttpService:JSONDecode(readfile(SAVE_KEY))
+    end
+end)
+
 local function save()
-    if writefile then
-        writefile(FILE, HttpService:JSONEncode(CONFIG))
-    end
+    writefile(SAVE_KEY, HttpService:JSONEncode(CONFIG))
 end
 
-local function load()
-    if readfile and isfile and isfile(FILE) then
-        local data = HttpService:JSONDecode(readfile(FILE))
-        for k,v in pairs(data) do
-            CONFIG[k] = v
-        end
-    end
-end
+-- ===============================
+-- ESTADO
+-- ===============================
+local recording = false
+local playing = false
+local startTick = 0
 
-load()
-
---------------------------------------------------
+-- ===============================
 -- UTILIDADES
---------------------------------------------------
-local function getMoney()
-    local ls = player:FindFirstChild("leaderstats")
-    return ls and ls:FindFirstChild("Cash") and ls.Cash.Value or 0
+-- ===============================
+local function isInLobby()
+    return workspace:FindFirstChild("Lobby") ~= nil
 end
 
-local function waitMoney(cost)
-    while getMoney() < cost do
+local function getCash()
+    local stats = player:FindFirstChild("leaderstats")
+    if stats and stats:FindFirstChild("Cash") then
+        return stats.Cash.Value
+    end
+    return 0
+end
+
+local function waitForCash(amount)
+    while getCash() < amount do
         task.wait(0.2)
     end
 end
 
---------------------------------------------------
+-- ===============================
 -- TELEPORT SOLO EN LOBBY
---------------------------------------------------
-local lobbyTeleported = false
-local LOBBY_CFRAME = CFrame.new(11267.60, 22.89, 50.98)
-
-local function isInLobby()
-    return player.PlayerGui:FindFirstChild("LobbyGui") ~= nil
-end
-
+-- ===============================
 task.spawn(function()
-    while task.wait(1) do
-        if isInLobby() and not lobbyTeleported then
-            local char = player.Character or player.CharacterAdded:Wait()
-            local hrp = char:WaitForChild("HumanoidRootPart")
-            hrp.CFrame = LOBBY_CFRAME
-            lobbyTeleported = true
-        end
-
-        if not isInLobby() then
-            lobbyTeleported = false
+    task.wait(2)
+    if isInLobby() then
+        local hrp = player.Character and player.Character:WaitForChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = CFrame.new(11267.60, 22.89, 50.98)
         end
     end
 end)
 
---------------------------------------------------
--- SISTEMA DE GRABACIÓN AUTOMÁTICA
---------------------------------------------------
-local recordStart = 0
-
-local function record(action, data)
-    if not CONFIG.recording then return end
-    table.insert(CONFIG.actions, {
-        t = tick() - recordStart,
-        a = action,
-        d = data
-    })
-    save()
-end
-
---------------------------------------------------
--- HOOK DE REMOTES (AUTO RECORD)
---------------------------------------------------
+-- ===============================
+-- HOOK DE REMOTES (GRABAR)
+-- ===============================
 local old
 old = hookmetamethod(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
     local args = {...}
+    local method = getnamecallmethod()
 
-    if method == "FireServer" then
-        if self == PLACE_REMOTE then
-            record("Place", {
+    if recording and method == "FireServer" then
+        if self == PlaceRemote then
+            table.insert(CONFIG.recorded, {
+                type = "place",
                 towerKey = args[1],
-                pos = args[2]
+                pos = args[2],
+                time = tick() - startTick
             })
-
-        elseif self == UPGRADE_REMOTE then
-            record("Upgrade", {
-                id = args[1]
+            save()
+        elseif self == UpgradeRemote then
+            table.insert(CONFIG.recorded, {
+                type = "upgrade",
+                id = args[1],
+                time = tick() - startTick
             })
-
-        elseif SELL_REMOTE and self == SELL_REMOTE then
-            record("Sell", {
-                id = args[1]
+            save()
+        elseif SellRemote and self == SellRemote then
+            table.insert(CONFIG.recorded, {
+                type = "sell",
+                id = args[1],
+                time = tick() - startTick
             })
+            save()
         end
     end
 
     return old(self, ...)
 end)
 
---------------------------------------------------
--- AUTO PLAY MACRO
---------------------------------------------------
-task.spawn(function()
-    if not CONFIG.autoPlay then return end
+-- ===============================
+-- REPRODUCIR MACRO
+-- ===============================
+local function playMacro()
+    if playing or #CONFIG.recorded == 0 then return end
+    playing = true
+    local base = tick()
 
-    task.wait(4)
+    for _, action in ipairs(CONFIG.recorded) do
+        if not playing then break end
 
-    if CONFIG.autoStart and START_REMOTE then
-        pcall(function() START_REMOTE:FireServer() end)
-    end
+        local waitTime = action.time - (tick() - base)
+        if waitTime > 0 then task.wait(waitTime) end
 
-    task.wait(3)
+        if action.type == "place" then
+            waitForCash(0)
+            PlaceRemote:FireServer(action.towerKey, action.pos)
 
-    if SPEED_REMOTE then
-        pcall(function() SPEED_REMOTE:FireServer(CONFIG.speed) end)
-    end
+        elseif action.type == "upgrade" then
+            UpgradeRemote:FireServer(action.id)
 
-    local start = tick()
-
-    for _,v in ipairs(CONFIG.actions) do
-        local delay = v.t - (tick() - start)
-        if delay > 0 then task.wait(delay) end
-
-        if v.a == "Place" then
-            PLACE_REMOTE:FireServer(v.d.towerKey, v.d.pos)
-
-        elseif v.a == "Upgrade" then
-            UPGRADE_REMOTE:FireServer(v.d.id)
-
-        elseif v.a == "Sell" and SELL_REMOTE then
-            SELL_REMOTE:FireServer(v.d.id)
+        elseif action.type == "sell" and SellRemote then
+            SellRemote:FireServer(action.id)
         end
+    end
+
+    playing = false
+end
+
+-- ===============================
+-- AUTO START / RETRY / SPEED
+-- ===============================
+task.spawn(function()
+    task.wait(5)
+
+    if CONFIG.autoStart then
+        pcall(function()
+            Network:FindFirstChild("PlayerVoteStart"):FireServer()
+        end)
+    end
+
+    pcall(function()
+        Network:FindFirstChild("SetGameSpeed"):FireServer(CONFIG.speed)
+    end)
+
+    if CONFIG.autoStart then
+        task.wait(3)
+        playMacro()
     end
 end)
 
---------------------------------------------------
--- AUTO RETRY
---------------------------------------------------
+-- Auto Retry
 task.spawn(function()
-    while task.wait(2) do
-        if CONFIG.autoRetry and RETRY_REMOTE then
-            local gui = player.PlayerGui:FindFirstChild("EndGameGui")
-            if gui and gui.Enabled then
-                task.wait(2)
-                RETRY_REMOTE:FireServer()
+    while true do
+        task.wait(5)
+        if CONFIG.autoRetry then
+            local endGui = player.PlayerGui:FindFirstChild("EndScreen", true)
+            if endGui then
+                TeleportService:Teleport(game.PlaceId, player)
             end
         end
     end
 end)
 
---------------------------------------------------
--- UI FLOTANTE (MÓVIL)
---------------------------------------------------
-local gui = Instance.new("ScreenGui", player.PlayerGui)
-gui.Name = "UTD_Macro_UI"
+-- ===============================
+-- UI FLOTRANTE (MOBILE)
+-- ===============================
+local gui = Instance.new("ScreenGui")
+gui.Name = "UTD_Macro"
 gui.ResetOnSpawn = false
+gui.Parent = CoreGui
 
 local frame = Instance.new("Frame", gui)
-frame.Size = UDim2.fromOffset(160, 140)
-frame.Position = UDim2.fromScale(0.05, 0.35)
-frame.BackgroundColor3 = Color3.fromRGB(25,25,25)
-frame.BorderSizePixel = 0
+frame.Size = UDim2.fromOffset(180, 200)
+frame.Position = UDim2.fromOffset(20, 200)
+frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 frame.Active = true
 frame.Draggable = true
 
-local function button(text, y)
+local function makeBtn(text, y, cb)
     local b = Instance.new("TextButton", frame)
-    b.Size = UDim2.fromOffset(140, 35)
+    b.Size = UDim2.fromOffset(160, 40)
     b.Position = UDim2.fromOffset(10, y)
     b.Text = text
     b.BackgroundColor3 = Color3.fromRGB(40,40,40)
     b.TextColor3 = Color3.new(1,1,1)
-    b.BorderSizePixel = 0
-    return b
+    b.MouseButton1Click:Connect(cb)
 end
 
-local rec = button("🔴 REC", 10)
-local stop = button("⏹ STOP", 55)
-local hide = button("👁 HIDE", 100)
-
-rec.MouseButton1Click:Connect(function()
-    CONFIG.actions = {}
-    CONFIG.recording = true
-    recordStart = tick()
+makeBtn("🔴 REC", 10, function()
+    CONFIG.recorded = {}
+    recording = true
+    startTick = tick()
     save()
 end)
 
-stop.MouseButton1Click:Connect(function()
-    CONFIG.recording = false
+makeBtn("⏹ STOP", 60, function()
+    recording = false
     save()
 end)
 
-hide.MouseButton1Click:Connect(function()
-    frame.Visible = false
+makeBtn("▶ PLAY", 110, function()
+    playMacro()
 end)
 
-print("✅ UTD MACRO AFK PRO CARGADO")
+makeBtn("❌ HIDE", 160, function()
+    gui.Enabled = false
+end)
