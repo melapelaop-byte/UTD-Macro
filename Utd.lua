@@ -1,4 +1,6 @@
--- UTD MACRO MOBILE - VERSION FINAL CORREGIDA
+-- UTD MACRO MOBILE - VERSION FINAL CORREGIDA v3
+-- Arreglos: Config persistente + Sistema de upgrades mejorado
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
@@ -17,6 +19,7 @@ local CONFIG = {
     isAutoFarmActive = false,
     recordedActions = {},
     placedTowers = {},
+    towerPositionMap = {}, -- Nuevo: mapeo de posiciones a IDs
     circlePosition = Vector3.new(11264.80, 22.77, 51.57),
     macroFolder = "UTD_Macros",
     configFile = "UTD_Config.json",
@@ -48,64 +51,82 @@ local function isInGame()
     return workspace:FindFirstChild("Map") ~= nil
 end
 
--- Sistema de archivos
+-- Sistema de archivos MEJORADO
 local function ensureFolderExists()
-    if not isfolder(CONFIG.macroFolder) then
-        makefolder(CONFIG.macroFolder)
-    end
+    pcall(function()
+        if not isfolder(CONFIG.macroFolder) then
+            makefolder(CONFIG.macroFolder)
+        end
+    end)
 end
 
 local function saveMacro(name, data)
-    ensureFolderExists()
-    writefile(CONFIG.macroFolder .. "/" .. name .. ".json", HttpService:JSONEncode(data))
+    local success = pcall(function()
+        ensureFolderExists()
+        local jsonData = HttpService:JSONEncode(data)
+        writefile(CONFIG.macroFolder .. "/" .. name .. ".json", jsonData)
+    end)
+    return success
 end
 
 local function loadMacro(name)
-    local path = CONFIG.macroFolder .. "/" .. name .. ".json"
-    if isfile(path) then
-        return HttpService:JSONDecode(readfile(path))
-    end
-    return nil
+    local success, result = pcall(function()
+        local path = CONFIG.macroFolder .. "/" .. name .. ".json"
+        if isfile(path) then
+            local jsonData = readfile(path)
+            return HttpService:JSONDecode(jsonData)
+        end
+        return nil
+    end)
+    return success and result or nil
 end
 
 local function listMacros()
-    ensureFolderExists()
-    local files = listfiles(CONFIG.macroFolder)
     local macros = {}
-    for _, file in ipairs(files) do
-        local name = file:match("([^/\\]+)%.json$")
-        if name then table.insert(macros, name) end
-    end
+    pcall(function()
+        ensureFolderExists()
+        local files = listfiles(CONFIG.macroFolder)
+        for _, file in ipairs(files) do
+            local name = file:match("([^/\\]+)%.json$")
+            if name then table.insert(macros, name) end
+        end
+    end)
     return macros
 end
 
 local function saveConfig()
-    ensureFolderExists()
-    local config = {
-        currentMacroName = CONFIG.currentMacroName,
-        isAutoFarmActive = CONFIG.isAutoFarmActive,
-        recordedActionsCount = #CONFIG.recordedActions
-    }
-    writefile(CONFIG.configFile, HttpService:JSONEncode(config))
+    pcall(function()
+        ensureFolderExists()
+        local config = {
+            currentMacroName = CONFIG.currentMacroName,
+            isAutoFarmActive = CONFIG.isAutoFarmActive,
+            recordedActionsCount = #CONFIG.recordedActions,
+            savedTime = os.time()
+        }
+        local jsonData = HttpService:JSONEncode(config)
+        writefile(CONFIG.configFile, jsonData)
+        print("💾 Config guardada:", CONFIG.currentMacroName or "sin macro")
+    end)
 end
 
 local function loadConfig()
-    if isfile(CONFIG.configFile) then
-        local success, data = pcall(function()
-            return HttpService:JSONDecode(readfile(CONFIG.configFile))
-        end)
-        
-        if success and data then
-            CONFIG.currentMacroName = data.currentMacroName
+    pcall(function()
+        if isfile(CONFIG.configFile) then
+            local jsonData = readfile(CONFIG.configFile)
+            local data = HttpService:JSONDecode(jsonData)
             
-            if CONFIG.currentMacroName then
+            if data and data.currentMacroName then
+                CONFIG.currentMacroName = data.currentMacroName
+                print("📂 Restaurando macro:", CONFIG.currentMacroName)
+                
                 local macroData = loadMacro(CONFIG.currentMacroName)
                 if macroData then
                     CONFIG.recordedActions = macroData
+                    print("✅ Macro restaurado:", #macroData, "acciones")
                 end
             end
         end
-    end
+    end)
 end
 
 -- Variables UI
@@ -145,7 +166,7 @@ local function createUI()
     TitleLabel.Size = UDim2.new(1, -75, 1, 0)
     TitleLabel.Position = UDim2.new(0, 10, 0, 0)
     TitleLabel.BackgroundTransparency = 1
-    TitleLabel.Text = "🎮 UTD Macro"
+    TitleLabel.Text = "🎮 UTD Macro v3"
     TitleLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
     TitleLabel.TextSize = 18
     TitleLabel.Font = Enum.Font.GothamBold
@@ -364,10 +385,12 @@ local function createUI()
             return
         end
         
-        local path = CONFIG.macroFolder .. "/" .. CONFIG.currentMacroName .. ".json"
-        if isfile(path) then
-            delfile(path)
-        end
+        pcall(function()
+            local path = CONFIG.macroFolder .. "/" .. CONFIG.currentMacroName .. ".json"
+            if isfile(path) then
+                delfile(path)
+            end
+        end)
         CONFIG.currentMacroName = nil
         updateStatus("🗑️ Eliminado", Color3.fromRGB(150, 150, 150))
         saveConfig()
@@ -400,11 +423,16 @@ local function createUI()
         end
         
         local name = "macro_" .. os.date("%H%M%S")
-        saveMacro(name, CONFIG.recordedActions)
-        CONFIG.currentMacroName = name
-        updateStatus("💾 " .. name, Color3.fromRGB(100, 255, 100))
-        saveConfig()
-        refreshMacroList()
+        local success = saveMacro(name, CONFIG.recordedActions)
+        
+        if success then
+            CONFIG.currentMacroName = name
+            updateStatus("💾 " .. name, Color3.fromRGB(100, 255, 100))
+            saveConfig()
+            refreshMacroList()
+        else
+            updateStatus("❌ Error al guardar", Color3.fromRGB(255, 100, 100))
+        end
     end)
 
     RetryBtn.MouseButton1Click:Connect(function()
@@ -498,14 +526,18 @@ local function placeTower(towerTypeId, position)
 end
 
 local function upgradeTower(towerId)
-    pcall(function()
+    local success = pcall(function()
         ReplicatedStorage:WaitForChild("GenericModules")
             :WaitForChild("Service")
             :WaitForChild("Network")
             :WaitForChild("PlayerUpgradeTower")
             :FireServer(towerId)
     end)
+    return success
 end
+
+-- SISTEMA DE UPGRADES MEJORADO
+local upgradeCounter = 0
 
 local function playMacro()
     if #CONFIG.recordedActions == 0 then
@@ -516,7 +548,8 @@ local function playMacro()
     updateStatus("⏳ Delay 5 seg...", Color3.fromRGB(255, 200, 50))
     wait(5)
     
-    CONFIG.placedTowers = {}
+    CONFIG.towerPositionMap = {}
+    upgradeCounter = 0
     local startTime = tick()
     
     for i, action in ipairs(CONFIG.recordedActions) do
@@ -542,10 +575,12 @@ local function playMacro()
             updateStatus("▶️ " .. towerName .. " " .. i .. "/" .. #CONFIG.recordedActions, Color3.fromRGB(100, 200, 255))
             placeTower(towerId, position)
             
-            table.insert(CONFIG.placedTowers, {
-                position = position,
-                id = tostring(#CONFIG.placedTowers + 1)
-            })
+            -- Guardar la posición X como key para el mapa
+            upgradeCounter = upgradeCounter + 1
+            local posKey = tostring(math.floor(position.X * 100) / 100) -- Redondear a 2 decimales
+            CONFIG.towerPositionMap[posKey] = tostring(upgradeCounter)
+            
+            print("📍 Torre colocada:", towerName, "PosX:", posKey, "ID asignado:", upgradeCounter)
             
             wait(0.3)
             
@@ -553,26 +588,34 @@ local function playMacro()
             local towerX = action.TowerUpgraded
             local upgradeCost = action.UpgradeCost or 0
             
+            -- Esperar dinero
             if upgradeCost > 0 then
                 local waitStart = tick()
-                while getCurrentMoney() < upgradeCost and CONFIG.isAutoFarmActive do
-                    updateStatus("💰 $" .. upgradeCost, Color3.fromRGB(255, 200, 50))
+ while getCurrentMoney() < upgradeCost and CONFIG.isAutoFarmActive do
+                    updateStatus("💰 Esperando $" .. upgradeCost, Color3.fromRGB(255, 200, 50))
                     wait(0.5)
-                    if tick() - waitStart > 60 then break end
+                    if tick() - waitStart > 60 then 
+                        print("⚠️ Timeout esperando dinero")
+                        break 
+                    end
                 end
             end
             
-            local targetTower = nil
-            for _, tower in ipairs(CONFIG.placedTowers) do
-                if math.abs(tower.position.X - towerX) < 1 then
-                    targetTower = tower
-                    break
-                end
-            end
+            -- Buscar torre por posición X en el mapa
+            local posKey = tostring(math.floor(towerX * 100) / 100)
+            local towerId = CONFIG.towerPositionMap[posKey]
             
-            if targetTower then
+            if towerId then
                 updateStatus("⬆️ Upgrade " .. i .. "/" .. #CONFIG.recordedActions, Color3.fromRGB(100, 255, 100))
-                upgradeTower(targetTower.id)
+                print("🔧 Mejorando torre ID:", towerId, "en PosX:", posKey)
+                
+                local success = upgradeTower(towerId)
+                if not success then
+                    print("❌ Error al mejorar torre")
+                end
+            else
+                print("❌ Torre no encontrada en PosX:", posKey)
+                print("🗺️ Mapa actual:", HttpService:JSONEncode(CONFIG.towerPositionMap))
             end
             
             wait(0.3)
@@ -645,7 +688,7 @@ function stopAutoFarm()
         AutoFarmToggle.Text = "⚪ APAGADO"
         AutoFarmToggle.BackgroundColor3 = Color3.fromRGB(80, 80, 85)
         AutoFarmToggle.TextColor3 = Color3.fromRGB(200, 200, 200)
-    end
+end
     updateStatus("⏹️ Detenido", Color3.fromRGB(150, 150, 150))
     saveConfig()
 end
@@ -660,3 +703,7 @@ if CONFIG.currentMacroName and #CONFIG.recordedActions > 0 then
 else
     updateStatus("✅ Listo", Color3.fromRGB(100, 255, 100))
 end
+
+print("✅ UTD Macro v3 cargado")
+print("📂 Config persistente mejorada")
+print("🔧 Sistema de upgrades corregido")
